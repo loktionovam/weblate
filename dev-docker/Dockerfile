@@ -1,4 +1,4 @@
-FROM weblate/weblate:edge
+FROM weblate/weblate:3.11-1
 
 ##########
 # WARNING!

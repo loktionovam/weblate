@@ -23,6 +23,7 @@ services:
     user: $USER_ID:$GROUP_ID
     userns_mode: "host"
     volumes:
+      - ./settings-override.py:/app/data/settings-override.py
       # Local data directory
       - $PWD/data:/app/data
       # Override Weblate with local dir
@@ -35,21 +36,36 @@ services:
       DJANGO_SETTINGS_MODULE: weblate.settings_docker
     env_file:
       - ./environment
+    networks:
+      backnet:
+        aliases:
+          - weblate.example.com
+      frontnet:
+        aliases:
+          - weblate.example.com
   database:
     image: postgres:11-alpine
     env_file:
       - ./environment
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data-dev:/var/lib/postgresql/data
       - ./postgres-init:/docker-entrypoint-initdb.d
     restart: always
+    networks:
+      - backnet
   cache:
     image: redis:4-alpine
     restart: always
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - redis-data:/data
+      - redis-data-dev:/data
+    networks:
+      - backnet
 volumes:
-  weblate-data: {}
-  postgres-data: {}
-  redis-data: {}
+  weblate-data-dev: {}
+  postgres-data-dev: {}
+  redis-data-dev: {}
+
+networks:
+  frontnet:
+  backnet:
