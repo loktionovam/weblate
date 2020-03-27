@@ -85,12 +85,19 @@ class SynchronizeTranslations(UpdateBaseAddon):
             "Update translation memory for '%s' project",
             component.project
         )
-        self.import_memory(component.project_id)
-        # self.logger.info(
-        #     "Start first time mandatory translations synchronization for '%s'", component)
-        # self.recreate_translations(component)
-        # self.logger.info("Start first time mandatory autotranslate for '%s'", component)
-        # self.apply_auto_translate(component)
+        transaction.on_commit(lambda : self.import_memory(component.project_id))
+
+        self.logger.info(
+            "Start first time mandatory translations synchronization for '%s'",
+            component
+        )
+        self.recreate_translations(component)
+
+        self.logger.info(
+            "Start first time mandatory autotranslate for '%s'",
+            component
+        )
+        self.apply_auto_translate(component)
 
     @classmethod
     def set_request(cls):
@@ -220,7 +227,7 @@ class SynchronizeTranslations(UpdateBaseAddon):
                 "Update translation memory for '%s' project",
                 component.project
             )
-            self.import_memory(component.project_id)
+            transaction.on_commit(lambda : self.import_memory(component.project_id))
             need_to_auto_translate = self.recreate_translations(component)
             if need_to_auto_translate:
                 self.logger.info(
