@@ -69,39 +69,139 @@ DATA_DIR = os.path.join(BASE_DIR, 'data-test')
 MEDIA_ROOT = os.path.join(DATA_DIR, 'media')
 STATIC_ROOT = os.path.join(DATA_DIR, 'static')
 CELERY_BEAT_SCHEDULE_FILENAME = os.path.join(DATA_DIR, 'celery', 'beat-schedule')
-CELERY_TASK_ALWAYS_EAGER = True
-CELERY_BROKER_URL = 'memory://'
-CELERY_TASK_EAGER_PROPAGATES = True
-CELERY_RESULT_BACKEND = None
+CELERY_TASK_ALWAYS_EAGER = False
+# CELERY_BROKER_URL = 'memory://'
+# CELERY_TASK_EAGER_PROPAGATES = True
+REDIS_PROTO = 'redis'
+REDIS_PASSWORD = ""
+
+CELERY_BROKER_URL = "{}://{}{}:{}/{}".format(
+    REDIS_PROTO,
+    ":{}@".format(REDIS_PASSWORD) if REDIS_PASSWORD else "",
+    os.environ.get("REDIS_HOST", "127.0.0.1"),
+    os.environ.get("REDIS_PORT", "6379"),
+    os.environ.get("REDIS_DB", "2"),
+)
+if REDIS_PROTO == "rediss":
+    CELERY_BROKER_URL = "{}?ssl_cert_reqs={}".format(
+        CELERY_BROKER_URL,
+        "CERT_REQUIRED" if get_env_bool("REDIS_VERIFY_SSL", True) else "CERT_NONE",
+    )
+CELERY_RESULT_BACKEND = CELERY_BROKER_URL
+
+CELERY_TASK_ROUTES = {
+    "weblate.trans.search.*": {"queue": "search"},
+    "weblate.trans.tasks.optimize_fulltext": {"queue": "search"},
+    "weblate.trans.tasks.cleanup_fulltext": {"queue": "search"},
+    "weblate.trans.tasks.auto_translate": {"queue": "translate"},
+    "weblate.memory.tasks.*": {"queue": "memory"},
+    "weblate.accounts.tasks.notify_*": {"queue": "notify"},
+    "weblate.accounts.tasks.send_mails": {"queue": "notify"},
+    "weblate.memory.tasks.memory_backup": {"queue": "backup"},
+    "weblate.utils.tasks.settings_backup": {"queue": "backup"},
+    "weblate.utils.tasks.database_backup": {"queue": "backup"},
+    "weblate.wladmin.tasks.backup": {"queue": "backup"},
+    "weblate.wladmin.tasks.backup_service": {"queue": "backup"},
+}
 
 # Silent logging setup
+DEFAULT_LOG = "console"
+DEBUG = True
+HAVE_SYSLOG = False
+
+if DEBUG or not HAVE_SYSLOG:
+    DEFAULT_LOG = "console"
+else:
+    DEFAULT_LOG = "syslog"
+
+# A sample logging configuration. The only tangible logging
+# performed by this configuration is to send an email to
+# the site admins on every HTTP 500 error when DEBUG=False.
+# See http://docs.djangoproject.com/en/stable/topics/logging for
+# more details on how to customize your logging configuration.
 LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'filters': {'require_debug_false': {'()': 'django.utils.log.RequireDebugFalse'}},
-    'formatters': {'simple': {'format': '%(levelname)s %(message)s'}},
-    'handlers': {
-        'mail_admins': {
-            'level': 'ERROR',
-            'filters': ['require_debug_false'],
-            'class': 'django.utils.log.AdminEmailHandler',
-        },
-        'console': {
-            'level': 'DEBUG',
-            'class': 'logging.StreamHandler',
-            'formatter': 'simple',
+    "version": 1,
+    "disable_existing_loggers": True,
+    "filters": {"require_debug_false": {"()": "django.utils.log.RequireDebugFalse"}},
+    "formatters": {
+        "syslog": {"format": "weblate[%(process)d]: %(levelname)s %(message)s"},
+        "simple": {"format": "%(levelname)s %(message)s"},
+        "logfile": {"format": "%(asctime)s %(levelname)s %(message)s"},
+        "django.server": {
+            "()": "django.utils.log.ServerFormatter",
+            "format": "[%(server_time)s] %(message)s",
         },
     },
-    'loggers': {
-        'django.request': {
-            'handlers': ['mail_admins'],
-            'level': 'ERROR',
-            'propagate': True,
+    "handlers": {
+        "mail_admins": {
+            "level": "ERROR",
+            "filters": ["require_debug_false"],
+            "class": "django.utils.log.AdminEmailHandler",
+            "include_html": True,
         },
-        'weblate': {'handlers': [], 'level': 'ERROR'},
-        'social': {'handlers': [], 'level': 'ERROR'},
+        "console": {
+            "level": "DEBUG",
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+        },
+        "django.server": {
+            "level": "INFO",
+            "class": "logging.StreamHandler",
+            "formatter": "django.server",
+        },
+        "syslog": {
+            "level": "DEBUG",
+            "class": "logging.handlers.SysLogHandler",
+            "formatter": "syslog",
+            "address": "/dev/log",
+            "facility": SysLogHandler.LOG_LOCAL2,
+        },
+        # Logging to a file
+        # 'logfile': {
+        #     'level':'DEBUG',
+        #     'class':'logging.handlers.RotatingFileHandler',
+        #     'filename': "/var/log/weblate/weblate.log",
+        #     'maxBytes': 100000,
+        #     'backupCount': 3,
+        #     'formatter': 'logfile',
+        # },
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["mail_admins", DEFAULT_LOG],
+            "level": "ERROR",
+            "propagate": True,
+        },
+        "django.server": {
+            "handlers": ["django.server"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        # Logging database queries
+        # 'django.db.backends': {
+        #     'handlers': [DEFAULT_LOG],
+        #     'level': 'DEBUG',
+        # },
+        "weblate": {
+            "handlers": [DEFAULT_LOG],
+            "level": os.environ.get("WEBLATE_LOGLEVEL", "DEBUG"),
+        },
+        # Logging search operations
+        "weblate.search": {"handlers": [DEFAULT_LOG], "level": "INFO"},
+        # Logging VCS operations
+        "weblate.vcs": {"handlers": [DEFAULT_LOG], "level": "WARNING"},
+        # Python Social Auth
+        "social": {"handlers": [DEFAULT_LOG], "level": "DEBUG" if DEBUG else "WARNING"},
+        # Django Authentication Using LDAP
+        "django_auth_ldap": {
+            "level": "DEBUG" if DEBUG else "WARNING",
+            "handlers": [DEFAULT_LOG],
+        },
     },
 }
+
+if not HAVE_SYSLOG:
+    del LOGGING["handlers"]["syslog"]
 
 # Reset caches
 CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
@@ -139,3 +239,36 @@ warnings.filterwarnings(
 if 'APPVEYOR' in os.environ:
     TEST_RUNNER = 'xmlrunner.extra.djangotestrunner.XMLTestRunner'
     TEST_OUTPUT_FILE_NAME = 'junit.xml'
+
+WEBLATE_ADDONS = [
+    "weblate.addons.gettext.GenerateMoAddon",
+    "weblate.addons.gettext.UpdateLinguasAddon",
+    "weblate.addons.gettext.UpdateConfigureAddon",
+    "weblate.addons.gettext.MsgmergeAddon",
+    "weblate.addons.gettext.GettextCustomizeAddon",
+    "weblate.addons.gettext.GettextAuthorComments",
+    "weblate.addons.cleanup.CleanupAddon",
+    "weblate.addons.consistency.LangaugeConsistencyAddon",
+    "weblate.addons.discovery.DiscoveryAddon",
+    "weblate.addons.flags.SourceEditAddon",
+    "weblate.addons.flags.TargetEditAddon",
+    "weblate.addons.flags.SameEditAddon",
+    "weblate.addons.flags.BulkEditAddon",
+    "weblate.addons.generate.GenerateFileAddon",
+    "weblate.addons.json.JSONCustomizeAddon",
+    "weblate.addons.properties.PropertiesSortAddon",
+    "weblate.addons.git.GitSquashAddon",
+    "weblate.addons.removal.RemoveComments",
+    "weblate.addons.removal.RemoveSuggestions",
+    "weblate.addons.resx.ResxUpdateAddon",
+    "weblate.addons.yaml.YAMLCustomizeAddon",
+    "weblate.addons.autotranslate.AutoTranslateAddon",
+]
+
+WEBLATE_ADDONS += (
+#   'weblate_omp.addons.synchronize.SynchronizeTranslations',
+    'weblate.addons.synchronize.SynchronizeTranslations',
+)
+
+WEBLATE_CI_USERNAME = os.environ.get('WEBLATE_CI_USERNAME')
+# TIME_ZONE = "Europe/Moscow"
