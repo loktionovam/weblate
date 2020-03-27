@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Simple wrapper to start/stop celery workers
-
+set -x
 python -m celery -A weblate.utils multi $1 \
     search notify celery memory backup translate \
     --pidfile=weblate-%n.pid \
@@ -12,3 +12,9 @@ python -m celery -A weblate.utils multi $1 \
     --concurrency:memory=1 --queues:memory=memory --prefetch-multiplier:memory=2000 \
     --concurrency:translate=2 --queues:translate=translate --prefetch-multiplier:translate=4 \
     --concurrency:backup=1 --queues:backup=backup  --prefetch-multiplier:backup=2
+
+python -m celery -A weblate_omp.addons multi $1 \
+    synchronize \
+    --pidfile=weblate-%n.pid \
+    --logfile=weblate-%n%I.log --loglevel=DEBUG \
+    --concurrency:synchronize=1 --queues:synchronize=synchronize  --prefetch-multiplier:synchronize=1

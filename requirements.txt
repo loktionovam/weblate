@@ -37,3 +37,4 @@ translate-toolkit>=2.4.0,<2.6.0
 translation-finder==1.7
 user-agents>=2.0,<2.2
 Whoosh==2.7.4
+./omp

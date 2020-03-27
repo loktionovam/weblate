@@ -55,12 +55,13 @@ class SynchronizeTranslations(UpdateBaseAddon):
     settings_form = AutoAddonForm
     multiple = True
     icon = "language.svg"
-    templates_updated = False
+    components_template_updated = []
     project_scope = True
     logger = LOGGER
     username = settings.WEBLATE_CI_USERNAME
     user = None
     request = None
+    components_addon_enabled = []
     TEMPLATES = ['en', 'templates']
 
     @classmethod
@@ -80,7 +81,10 @@ class SynchronizeTranslations(UpdateBaseAddon):
     def component_update(self, component):
         """Handler to processing EVENT_COMPONENT_UPDATE event.
         """
-        self.mandatory_run_addon(component)
+        # run one-time full synchronization when addon enabled.
+        if component.name not in SynchronizeTranslations.components_addon_enabled:
+            SynchronizeTranslations.components_addon_enabled.append(component.name)
+            self.mandatory_run_addon(component)
 
     def mandatory_run_addon(self, component):
         """This method mandatory import memory,
@@ -125,19 +129,20 @@ class SynchronizeTranslations(UpdateBaseAddon):
 
     def import_memory(self, project_id):
         """This method copied from weblate.memory.tasks
-        to run synchronously without task manager
+        to run synchronously without task manager.
         """
         from weblate.trans.models import Unit
 
         units = Unit.objects.filter(
-            translation__component__project_id=project_id, state__gte=STATE_TRANSLATED
+            translation__component__project_id=project_id,
+            state__gte=STATE_TRANSLATED,
         )
         for unit in units.iterator():
-            self.update_memory(None, unit)
+            self.update_memory(unit)
 
-    def update_memory(self, user, unit):
+    def update_memory(self, unit, user=None):
         """This method copied from weblate.memory.tasks
-        to run synchronously without task manager
+        to run synchronously without task manager.
         """
         component = unit.translation.component
         project = component.project
@@ -160,7 +165,7 @@ class SynchronizeTranslations(UpdateBaseAddon):
 
     def update_memory_task(self, *args, **kwargs):
         """This method copied from weblate.memory.tasks
-        to run synchronously without task manager
+        to run synchronously without task manager.
         """
         def fixup_strings(data):
             result = {}
@@ -199,7 +204,7 @@ class SynchronizeTranslations(UpdateBaseAddon):
                 "Source file '%s' changed, so need to re-recreate existing translations",
                 component.new_base
             )
-            self.templates_updated = True
+            self.components_template_updated.append(component.name)
         else:
             self.logger.info(
                 "Source files don't changed, so skipping to re-create existing translation")
@@ -238,7 +243,7 @@ class SynchronizeTranslations(UpdateBaseAddon):
         Try to to re-create existing translation if needed and
         'apply' translation memory to re-created translations.
         """
-        if self.templates_updated:
+        if component.name in self.components_template_updated:
             # populate a translation memory before autotranslate
             self.logger.info(
                 "Update translation memory for '%s' project",

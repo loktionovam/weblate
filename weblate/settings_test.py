@@ -24,8 +24,8 @@
 
 import os
 import warnings
-
 from weblate.settings_example import *  # noqa
+from celery.app.registry import TaskRegistry
 
 CI_DATABASE = os.environ.get('CI_DATABASE', '')
 
@@ -156,15 +156,14 @@ LOGGING = {
             "address": "/dev/log",
             "facility": SysLogHandler.LOG_LOCAL2,
         },
-        # Logging to a file
-        # 'logfile': {
-        #     'level':'DEBUG',
-        #     'class':'logging.handlers.RotatingFileHandler',
-        #     'filename': "/var/log/weblate/weblate.log",
-        #     'maxBytes': 100000,
-        #     'backupCount': 3,
-        #     'formatter': 'logfile',
-        # },
+        'logfile': {
+            'level':'DEBUG',
+            'class':'logging.handlers.RotatingFileHandler',
+            'filename': "/tmp/weblate.log",
+            'maxBytes': 100000,
+            'backupCount': 3,
+            'formatter': 'logfile',
+        },
     },
     "loggers": {
         "django.request": {
@@ -185,6 +184,10 @@ LOGGING = {
         "weblate": {
             "handlers": [DEFAULT_LOG],
             "level": os.environ.get("WEBLATE_LOGLEVEL", "DEBUG"),
+        },
+        "celery.task": {
+            "handlers": ['logfile'],
+            "level": "DEBUG",
         },
         # Logging search operations
         "weblate.search": {"handlers": [DEFAULT_LOG], "level": "INFO"},
@@ -266,9 +269,42 @@ WEBLATE_ADDONS = [
 ]
 
 WEBLATE_ADDONS += (
-#   'weblate_omp.addons.synchronize.SynchronizeTranslations',
-    'weblate.addons.synchronize.SynchronizeTranslations',
+    'weblate_omp.addons.synchronize.SynchronizeTranslations',
 )
 
 WEBLATE_CI_USERNAME = os.environ.get('WEBLATE_CI_USERNAME')
 # TIME_ZONE = "Europe/Moscow"
+
+CELERY_TASK_ROUTES.update(
+    {
+        "weblate_omp.addons.tasks.install_addon_for_projects_task": {"queue": "synchronize"},
+    }
+)
+
+
+SYNCHRONIZATION_CONFIGURATION = {
+    'auto_source': 'mt',
+    'component': '',
+    'engines': ['weblate-translation-memory'],
+    'filter_type': 'all',
+    'mode': 'translate',
+    'threshold': 80
+}
+
+SYNCHRONIZATION_ENABLED_PROJECTS = [
+    "l10n-tests",
+    "content-configuration-base",
+]
+
+CELERY_BEAT_SCHEDULE = {
+    "synchronize_translations": {
+        "task": "weblate_omp.addons.tasks.install_addon_for_projects_task",
+        "args": (
+            "weblate_omp.addons.synchronize_translations",
+            "cibot",
+            None,
+            SYNCHRONIZATION_CONFIGURATION,
+        ),
+        "schedule": 30,
+    }
+}
