@@ -10,14 +10,32 @@ from django.conf import settings
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.db import transaction
 from django.http.request import HttpRequest
+from django.utils.encoding import force_text
 from django.utils.translation import ugettext_lazy as _
+
+from time import sleep
+
 from weblate.addons.base import UpdateBaseAddon
-from weblate.addons.events import EVENT_COMPONENT_UPDATE, EVENT_DAILY, EVENT_PRE_UPDATE, EVENT_POST_UPDATE
+from weblate.addons.events import (
+    EVENT_COMPONENT_UPDATE,
+    EVENT_DAILY,
+    EVENT_PRE_UPDATE,
+    EVENT_POST_UPDATE
+)
 from weblate.addons.forms import AutoAddonForm
-from weblate.memory.tasks import import_memory
+from weblate.memory.storage import (
+    CATEGORY_PRIVATE_OFFSET,
+    CATEGORY_SHARED,
+    CATEGORY_USER_OFFSET,
+    TranslationMemory,
+)
 from weblate.auth.models import User
 from weblate.trans.tasks import auto_translate
 from weblate.logger import LOGGER
+from weblate.utils.celery import extract_batch_kwargs
+from weblate.utils.state import STATE_TRANSLATED
+
+from whoosh.index import LockError
 
 
 class SynchronizeTranslations(UpdateBaseAddon):
@@ -63,12 +81,16 @@ class SynchronizeTranslations(UpdateBaseAddon):
     def component_update(self, component):
         """Handler to processing EVENT_COMPONENT_UPDATE event.
         """
-        self.update_translation_memory(component)
         self.logger.info(
-            "Start first time mandatory translations synchronization for '%s'", component)
-        self.recreate_translations(component)
-        self.logger.info("Start first time mandatory autotranslate for '%s'", component)
-        self.daily(component)
+            "Update translation memory for '%s' project",
+            component.project
+        )
+        self.import_memory(component.project_id)
+        # self.logger.info(
+        #     "Start first time mandatory translations synchronization for '%s'", component)
+        # self.recreate_translations(component)
+        # self.logger.info("Start first time mandatory autotranslate for '%s'", component)
+        # self.apply_auto_translate(component)
 
     @classmethod
     def set_request(cls):
@@ -88,9 +110,58 @@ class SynchronizeTranslations(UpdateBaseAddon):
         if not cls.user:
             cls.user = User.objects.get(username=cls.username)
 
-    def update_translation_memory(self, component):
-        self.logger.info("Update translation memory for '%s' project", component.project)
-        transaction.on_commit(lambda: import_memory.delay(component.project_id))
+    def import_memory(self, project_id):
+        from weblate.trans.models import Unit
+
+        units = Unit.objects.filter(
+            translation__component__project_id=project_id, state__gte=STATE_TRANSLATED
+        )
+        for unit in units.iterator():
+            self.update_memory(None, unit)
+
+    def update_memory(self, user, unit):
+        component = unit.translation.component
+        project = component.project
+
+        categories = [CATEGORY_PRIVATE_OFFSET + project.pk]
+        if user:
+            categories.append(CATEGORY_USER_OFFSET + user.id)
+        if unit.translation.component.project.contribute_shared_tm:
+            categories.append(CATEGORY_SHARED)
+
+        for category in categories:
+            self.update_memory_task(
+                source_language=project.source_language.code,
+                target_language=unit.translation.language.code,
+                source=unit.source,
+                target=unit.target,
+                origin=component.full_slug,
+                category=category,
+            )
+
+    def update_memory_task(self, *args, **kwargs):
+        def fixup_strings(data):
+            result = {}
+            for key, value in data.items():
+                if isinstance(value, int):
+                    result[key] = value
+                else:
+                    result[key] = force_text(value)
+            return result
+
+        data = extract_batch_kwargs(*args, **kwargs)
+
+        memory = TranslationMemory()
+        try:
+            with memory.writer() as writer:
+                for item in data:
+                    writer.add_document(**fixup_strings(item))
+        except LockError:
+            # Manually handle retries, it doesn't work
+            # with celery-batches
+            sleep(10)
+            for unit in data:
+                self.update_memory_task(**unit)
 
     def pre_update(self, component):
         """This method is handler to processing EVENT_PRE_UPDATE event,
@@ -103,7 +174,9 @@ class SynchronizeTranslations(UpdateBaseAddon):
         changed = component.repository.list_upstream_changed_files()
         if component.new_base is not None and component.new_base in changed:
             self.logger.info(
-                "Source file '%s' changed, so need to re-recreate existing translations", component.new_base)
+                "Source file '%s' changed, so need to re-recreate existing translations",
+                component.new_base
+            )
             self.templates_updated = True
         else:
             self.logger.info(
@@ -116,7 +189,9 @@ class SynchronizeTranslations(UpdateBaseAddon):
             self.logger.info("Processing '%s'", translation)
             if translation.language_code in self.TEMPLATES:
                 self.logger.info(
-                    "Translation '%s' is template translation, so skipping", translation)
+                    "Translation '%s' is template translation, so skipping",
+                    translation
+                )
                 continue
             language = translation.language
             self.logger.info("Deletion user is: '%s'", SynchronizeTranslations.user)
@@ -141,17 +216,21 @@ class SynchronizeTranslations(UpdateBaseAddon):
         """
         if self.templates_updated:
             # populate a translation memory before autotranslate
-            self.update_translation_memory(component)
+            self.logger.info(
+                "Update translation memory for '%s' project",
+                component.project
+            )
+            self.import_memory(component.project_id)
             need_to_auto_translate = self.recreate_translations(component)
             if need_to_auto_translate:
                 self.logger.info(
                     "Translations re-created, so start automatic translation")
-                self.daily(component)
+                self.apply_auto_translate(component)
             else:
                 self.logger.info(
                     "Translations don't re-created, so automatic translation skipped")
 
-    def daily(self, component):
+    def apply_auto_translate(self, component):
         """This method 'apply' machine translation
         to given component.
         """
@@ -160,6 +239,8 @@ class SynchronizeTranslations(UpdateBaseAddon):
                 continue
             transaction.on_commit(
                 lambda: auto_translate.delay(
-                    SynchronizeTranslations.user.pk, translation.pk, **self.instance.configuration
+                    SynchronizeTranslations.user.pk,
+                    translation.pk,
+                    **self.instance.configuration
                 )
             )
