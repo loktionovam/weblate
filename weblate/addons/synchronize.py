@@ -83,6 +83,10 @@ class SynchronizeTranslations(UpdateBaseAddon):
         self.mandatory_run_addon(component)
 
     def mandatory_run_addon(self, component):
+        """This method mandatory import memory,
+        re-create translations and apply imported
+        memory to re-created translations.
+        """
         self.logger.info(
             "Update translation memory for '%s' project",
             component.project
@@ -120,6 +124,9 @@ class SynchronizeTranslations(UpdateBaseAddon):
             cls.user = User.objects.get(username=cls.username)
 
     def import_memory(self, project_id):
+        """This method copied from weblate.memory.tasks
+        to run synchronously without task manager
+        """
         from weblate.trans.models import Unit
 
         units = Unit.objects.filter(
@@ -129,6 +136,9 @@ class SynchronizeTranslations(UpdateBaseAddon):
             self.update_memory(None, unit)
 
     def update_memory(self, user, unit):
+        """This method copied from weblate.memory.tasks
+        to run synchronously without task manager
+        """
         component = unit.translation.component
         project = component.project
 
@@ -149,6 +159,9 @@ class SynchronizeTranslations(UpdateBaseAddon):
             )
 
     def update_memory_task(self, *args, **kwargs):
+        """This method copied from weblate.memory.tasks
+        to run synchronously without task manager
+        """
         def fixup_strings(data):
             result = {}
             for key, value in data.items():
@@ -192,6 +205,8 @@ class SynchronizeTranslations(UpdateBaseAddon):
                 "Source files don't changed, so skipping to re-create existing translation")
 
     def recreate_translations(self, component):
+        """This method re-create all translations (i.e. delete/create) in the given component.
+        """
         self.logger.info("Start re-create existing translations")
         translations_recreated = False
         for translation in component.translation_set.iterator():
@@ -241,7 +256,7 @@ class SynchronizeTranslations(UpdateBaseAddon):
 
     def apply_auto_translate(self, component):
         """This method 'apply' machine translation
-        to given component.
+        to the given component.
         """
         for translation in component.translation_set.iterator():
             if translation.is_source:
