@@ -18,7 +18,6 @@ from time import sleep
 from weblate.addons.base import UpdateBaseAddon
 from weblate.addons.events import (
     EVENT_COMPONENT_UPDATE,
-    EVENT_DAILY,
     EVENT_PRE_UPDATE,
     EVENT_POST_UPDATE
 )
@@ -44,7 +43,7 @@ class SynchronizeTranslations(UpdateBaseAddon):
     from machine translation memory
     """
 
-    events = (EVENT_COMPONENT_UPDATE, EVENT_DAILY, EVENT_PRE_UPDATE, EVENT_POST_UPDATE)
+    events = (EVENT_COMPONENT_UPDATE, EVENT_PRE_UPDATE, EVENT_POST_UPDATE)
     name = "weblate_omp.addons.synchronize_translations"
     verbose = _("Synchronize translations with translation templates")
     description = _(
@@ -81,6 +80,9 @@ class SynchronizeTranslations(UpdateBaseAddon):
     def component_update(self, component):
         """Handler to processing EVENT_COMPONENT_UPDATE event.
         """
+        self.mandatory_run_addon(component)
+
+    def mandatory_run_addon(self, component):
         self.logger.info(
             "Update translation memory for '%s' project",
             component.project
@@ -244,10 +246,12 @@ class SynchronizeTranslations(UpdateBaseAddon):
         for translation in component.translation_set.iterator():
             if translation.is_source:
                 continue
+            self.logger.info(
+                "Apply auto translation to '%s'", translation
+            )
             transaction.on_commit(
-                lambda: auto_translate.delay(
-                    SynchronizeTranslations.user.pk,
-                    translation.pk,
-                    **self.instance.configuration
+                lambda: auto_translate.apply(
+                    [SynchronizeTranslations.user.pk, translation.pk],
+                    {**self.instance.configuration}
                 )
             )
