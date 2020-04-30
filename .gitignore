@@ -33,3 +33,4 @@ weblate-*.tar.*
 /weblate-*.pid
 /dev-docker/data/
 *~
+.history
