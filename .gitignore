@@ -34,3 +34,5 @@ weblate-*.tar.*
 /dev-docker/data/
 *~
 .history
+/data-test1/
+celerybeat-schedule
