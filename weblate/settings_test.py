@@ -125,7 +125,7 @@ LOGGING = {
     "filters": {"require_debug_false": {"()": "django.utils.log.RequireDebugFalse"}},
     "formatters": {
         "syslog": {"format": "weblate[%(process)d]: %(levelname)s %(message)s"},
-        "simple": {"format": "%(levelname)s %(message)s"},
+        "simple": {"format": "%(asctime)s %(levelname)s %(message)s"},
         "logfile": {"format": "%(asctime)s %(levelname)s %(message)s"},
         "django.server": {
             "()": "django.utils.log.ServerFormatter",
@@ -269,7 +269,7 @@ WEBLATE_ADDONS = [
 ]
 
 WEBLATE_ADDONS += (
-    'weblate_omp.addons.synchronize.SynchronizeTranslations',
+    'omp.weblate_omp.addons.synchronize.SynchronizeTranslations',
 )
 
 WEBLATE_CI_USERNAME = os.environ.get('WEBLATE_CI_USERNAME')
@@ -277,7 +277,7 @@ WEBLATE_CI_USERNAME = os.environ.get('WEBLATE_CI_USERNAME')
 
 CELERY_TASK_ROUTES.update(
     {
-        "weblate_omp.addons.tasks.install_addon_for_projects_task": {"queue": "synchronize"},
+        "omp.weblate_omp.addons.tasks.install_addon_for_projects_task": {"queue": "synchronize"},
     }
 )
 
@@ -292,8 +292,7 @@ SYNCHRONIZATION_CONFIGURATION = {
 }
 
 SYNCHRONIZATION_ENABLED_PROJECTS = [
-    "l10n-tests",
-    "content-configuration-base",
+
 ]
 
 CELERY_BEAT_SCHEDULE = {

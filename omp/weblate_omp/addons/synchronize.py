@@ -109,6 +109,9 @@ class SynchronizeTranslations(UpdateBaseAddon):
         )
         self.apply_auto_translate(component)
 
+        self.logger.info(
+            "First time mandatory translations synchronization for '%s' completed", component)
+
     @classmethod
     def set_request(cls):
         """Method set request object.
@@ -263,6 +266,9 @@ class SynchronizeTranslations(UpdateBaseAddon):
         """This method 'apply' machine translation
         to the given component.
         """
+        self.logger.info(
+            "Auto translation for '%s' component started", component.name
+        )
         for translation in component.translation_set.iterator():
             if translation.is_source:
                 continue
@@ -275,3 +281,6 @@ class SynchronizeTranslations(UpdateBaseAddon):
                     {**self.instance.configuration}
                 )
             )
+        self.logger.info(
+            "Auto translation for '%s' component completed", component.name
+        )
