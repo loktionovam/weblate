@@ -206,6 +206,8 @@ class SynchronizeTranslations(UpdateBaseAddon):
         """
         self.logger.info("Start re-create existing translations")
         translations_recreated = False
+        user = User.objects.get(username=self.username)
+        request = self.get_request()
         for translation in component.translation_set.iterator():
             self.logger.info("Processing '%s'", translation)
             if translation.language_code in self.TEMPLATES:
@@ -215,14 +217,13 @@ class SynchronizeTranslations(UpdateBaseAddon):
                 )
                 continue
             language = translation.language
-            user = User.objects.get(username=self.username)
             self.logger.info("Deletion user is: '%s'", user)
             self.logger.info("Remove '%s'", translation)
             translation.remove(user)
             self.logger.info("Create new translation for '%s' language", language)
             component.add_new_language(
                 language=language,
-                request=self.get_request(),
+                request=request,
                 send_signal=False)
 
             if not translations_recreated:
