@@ -259,13 +259,13 @@ class SynchronizeTranslations(UpdateBaseAddon):
         self.logger.info(
             "Auto translation for '%s' component started", component.name
         )
+        user = User.objects.get(username=self.username)
         for translation in component.translation_set.iterator():
             if translation.is_source:
                 continue
             self.logger.info(
                 "Apply auto translation to '%s'", translation
             )
-            user = User.objects.get(username=self.username)
             transaction.on_commit(
                 lambda: auto_translate.apply(
                     [user.pk, translation.pk],
