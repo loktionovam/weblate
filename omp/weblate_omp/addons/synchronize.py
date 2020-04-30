@@ -59,8 +59,6 @@ class SynchronizeTranslations(UpdateBaseAddon):
     project_scope = True
     logger = LOGGER
     username = settings.WEBLATE_CI_USERNAME
-    user = None
-    request = None
     components_addon_enabled = []
     TEMPLATES = ['en', 'templates']
 
@@ -71,11 +69,10 @@ class SynchronizeTranslations(UpdateBaseAddon):
         """
         can_be_installed = True
         try:
-            cls.set_user()
-        except User.DoesNotExist as error:
+            User.objects.get(username=cls.username)
+        except User.DoesNotExist:
             can_be_installed = False
-        else:
-            cls.set_request()
+
         return can_be_installed
 
     def component_update(self, component):
@@ -112,23 +109,15 @@ class SynchronizeTranslations(UpdateBaseAddon):
         self.logger.info(
             "First time mandatory translations synchronization for '%s' completed", component)
 
-    @classmethod
-    def set_request(cls):
-        """Method set request object.
+    def get_request(self):
+        """Method get request object.
         """
-        if not cls.request:
-            cls.request = HttpRequest()
-            cls.request.user = cls.user
-            cls.request.session = 'session'
-            messages = FallbackStorage(cls.request)
-            cls.request._messages = messages
-
-    @classmethod
-    def set_user(cls):
-        """Method set user object.
-        """
-        if not cls.user:
-            cls.user = User.objects.get(username=cls.username)
+        request = HttpRequest()
+        request.user = User.objects.get(username=self.username)
+        request.session = 'session'
+        messages = FallbackStorage(request)
+        request._messages = messages
+        return request
 
     def import_memory(self, project_id):
         """This method copied from weblate.memory.tasks
@@ -226,13 +215,14 @@ class SynchronizeTranslations(UpdateBaseAddon):
                 )
                 continue
             language = translation.language
-            self.logger.info("Deletion user is: '%s'", SynchronizeTranslations.user)
+            user = User.objects.get(username=self.username)
+            self.logger.info("Deletion user is: '%s'", user)
             self.logger.info("Remove '%s'", translation)
-            translation.remove(SynchronizeTranslations.user)
+            translation.remove(user)
             self.logger.info("Create new translation for '%s' language", language)
             component.add_new_language(
                 language=language,
-                request=SynchronizeTranslations.request,
+                request=self.get_request(),
                 send_signal=False)
 
             if not translations_recreated:
@@ -275,9 +265,10 @@ class SynchronizeTranslations(UpdateBaseAddon):
             self.logger.info(
                 "Apply auto translation to '%s'", translation
             )
+            user = User.objects.get(username=self.username)
             transaction.on_commit(
                 lambda: auto_translate.apply(
-                    [SynchronizeTranslations.user.pk, translation.pk],
+                    [user.pk, translation.pk],
                     {**self.instance.configuration}
                 )
             )
